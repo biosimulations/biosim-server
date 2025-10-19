@@ -30,7 +30,7 @@ spec:
               value: temporal
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
-          image: postgres
+          image: postgres:16
           name: temporal-postgresql
           ports:
             - containerPort: 5432
