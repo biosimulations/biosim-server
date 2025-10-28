@@ -8,7 +8,9 @@ from typing import AsyncGenerator, Optional
 import dotenv
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, Query, APIRouter, Depends, HTTPException
+from fastapi.openapi.docs import get_swagger_ui_html
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import HTMLResponse
 
 from biosim_server.biosim_omex import OmexFile, get_cached_omex_file_from_upload
 from biosim_server.biosim_runs import BiosimulatorVersion
@@ -81,7 +83,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     await shutdown_standalone()
 
 
-app = FastAPI(title=APP_TITLE, version=APP_VERSION, servers=APP_SERVERS, lifespan=lifespan)
+app = FastAPI(openapi_url="/docs", docs_url=None, redoc_url=None, title=APP_TITLE, version=APP_VERSION, servers=APP_SERVERS, lifespan=lifespan)
 
 # add origins
 app.add_middleware(
@@ -106,6 +108,16 @@ def root() -> dict[str, str]:
 def get_version() -> str:
     return APP_VERSION
 
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html() -> HTMLResponse:
+    if app.openapi_url is None:
+        raise HTTPException(status_code=404, detail="OpenAPI schema not available")
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=app.title + " - Swagger UI",
+        swagger_js_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/3.0.21/swagger-ui-bundle.js", # Replace with your CDN URL
+        swagger_css_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/3.0.21/swagger-ui.css",     # Replace with your CDN URL
+    )
 
 @app.post(
     "/verify/omex",
