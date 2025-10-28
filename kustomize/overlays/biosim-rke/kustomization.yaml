@@ -5,9 +5,9 @@ namespace: biosim-rke
 
 images:
 - name: ghcr.io/biosimulations/biosim-api
-  newTag: amd64_0.2.1
+  newTag: amd64_0.2.3
 - name: ghcr.io/biosimulations/biosim-worker
-  newTag: amd64_0.2.1
+  newTag: amd64_0.2.3
 - name: docker.io/library/mongo
   newTag: 8.0.4
 
