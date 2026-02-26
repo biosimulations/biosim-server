@@ -3,6 +3,33 @@ info:
   title: biosim-server
   version: 0.2.3
 paths:
+  /compatibility/check:
+    post:
+      tags:
+      - Compatibility
+      summary: Check OMEX archive compatibility with simulators
+      description: Upload an OMEX archive to find compatible simulators based on model
+        format and algorithm requirements.
+      operationId: check-compatibility
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_check-compatibility'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompatibilityResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /:
     get:
       summary: Root
@@ -350,6 +377,17 @@ components:
       - created
       - updated
       title: BiosimulatorVersion
+    Body_check-compatibility:
+      properties:
+        uploaded_file:
+          type: string
+          format: binary
+          title: Uploaded File
+          description: OMEX/COMBINE archive to check for compatibility
+      type: object
+      required:
+      - uploaded_file
+      title: Body_check-compatibility
     Body_verify-omex:
       properties:
         uploaded_file:
@@ -435,6 +473,56 @@ components:
       - simulator_version_j
       - var_names
       title: ComparisonStatistics
+    CompatibilityResponse:
+      properties:
+        omex_content:
+          $ref: '#/components/schemas/OmexContent'
+        compatible_simulators:
+          items:
+            $ref: '#/components/schemas/CompatibleSimulator'
+          type: array
+          title: Compatible Simulators
+        equivalent_simulators:
+          items:
+            $ref: '#/components/schemas/CompatibleSimulator'
+          type: array
+          title: Equivalent Simulators
+      type: object
+      required:
+      - omex_content
+      - compatible_simulators
+      - equivalent_simulators
+      title: CompatibilityResponse
+      description: Response from the compatibility check endpoint.
+    CompatibleSimulator:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        version:
+          type: string
+          title: Version
+        image_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Image Url
+        algorithms:
+          items:
+            type: string
+          type: array
+          title: Algorithms
+      type: object
+      required:
+      - id
+      - name
+      - version
+      - algorithms
+      title: CompatibleSimulator
+      description: A simulator that can run the OMEX archive.
     GenerateStatisticsActivityOutput:
       properties:
         sims_run_info:
@@ -583,6 +671,49 @@ components:
       - shape
       - values
       title: Hdf5DataValues
+    ModelFormat:
+      properties:
+        format_uri:
+          type: string
+          title: Format Uri
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+        location:
+          type: string
+          title: Location
+      type: object
+      required:
+      - format_uri
+      - location
+      title: ModelFormat
+      description: Represents a model file format found in an OMEX archive.
+    OmexContent:
+      properties:
+        model_formats:
+          items:
+            $ref: '#/components/schemas/ModelFormat'
+          type: array
+          title: Model Formats
+        simulations:
+          items:
+            $ref: '#/components/schemas/SimulationRequirement'
+          type: array
+          title: Simulations
+        sedml_files:
+          items:
+            type: string
+          type: array
+          title: Sedml Files
+      type: object
+      required:
+      - model_formats
+      - simulations
+      - sedml_files
+      title: OmexContent
+      description: Parsed content from an OMEX archive.
     RunData:
       properties:
         run_id:
@@ -605,6 +736,20 @@ components:
       - var_names
       - data
       title: RunData
+    SimulationRequirement:
+      properties:
+        algorithm_kisao_id:
+          type: string
+          title: Algorithm Kisao Id
+        simulation_type:
+          type: string
+          title: Simulation Type
+      type: object
+      required:
+      - algorithm_kisao_id
+      - simulation_type
+      title: SimulationRequirement
+      description: Represents a simulation algorithm requirement from a SED-ML file.
     SimulationRunInfo:
       properties:
         biosim_sim_run:
