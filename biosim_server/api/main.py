@@ -119,8 +119,8 @@ async def custom_swagger_ui_html() -> HTMLResponse:
     return get_swagger_ui_html(
         openapi_url=app.openapi_url,
         title=app.title + " - Swagger UI",
-        swagger_js_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/3.0.21/swagger-ui-bundle.js", # Replace with your CDN URL
-        swagger_css_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/3.0.21/swagger-ui.css",     # Replace with your CDN URL
+        swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js",
+        swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css",
     )
 
 @app.post(
