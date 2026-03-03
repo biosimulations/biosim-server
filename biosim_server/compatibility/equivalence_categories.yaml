@@ -1,0 +1,54 @@
+# Equivalence categories for KiSAO algorithm matching.
+#
+# Each entry is a KiSAO ontology term that serves as a grouping category.
+# Two simulation algorithms are considered "equivalent" if they share an
+# ancestor in this set. Only terms with children in the ontology belong
+# here — leaf algorithms should NOT be added.
+#
+# To regenerate kisao_data.py after editing:
+#   poetry run python scripts/generate_kisao_data.py
+
+categories:
+  - id: "KISAO:0000000"
+    name: "modelling and simulation algorithm"
+    rationale: "Root of the algorithm ontology; included for completeness but excluded from matching at runtime (too broad)"
+
+  - id: "KISAO:0000094"
+    name: "Livermore solver"
+    rationale: "Groups LSODA/LSODE family of adaptive ODE solvers"
+
+  - id: "KISAO:0000302"
+    name: "embedded Runge-Kutta method"
+    rationale: "Groups RK4, RK45, Dormand-Prince and other explicit Runge-Kutta variants"
+
+  - id: "KISAO:0000319"
+    name: "Monte Carlo method"
+    rationale: "Groups all stochastic simulation algorithms (SSA, tau-leaping, etc.)"
+
+  - id: "KISAO:0000352"
+    name: "hybrid method"
+    rationale: "Groups hybrid deterministic/stochastic methods"
+
+  - id: "KISAO:0000377"
+    name: "one-step method"
+    rationale: "Groups single-step ODE methods (Euler, Runge-Kutta families)"
+
+  - id: "KISAO:0000407"
+    name: "steady state root-finding method"
+    rationale: "Groups numerical methods for finding steady states via root-finding"
+
+  - id: "KISAO:0000408"
+    name: "Newton-type method"
+    rationale: "Groups Newton and quasi-Newton nonlinear solvers"
+
+  - id: "KISAO:0000433"
+    name: "CVODE-like method"
+    rationale: "Groups CVODE, PVODE and similar variable-coefficient ODE solvers"
+
+  - id: "KISAO:0000630"
+    name: "general steady state method"
+    rationale: "Broad category for all steady-state analysis methods"
+
+  - id: "KISAO:0000694"
+    name: "ODE solver"
+    rationale: "Broad parent category for all ordinary differential equation solvers"
