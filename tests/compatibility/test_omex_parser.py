@@ -32,8 +32,11 @@ def test_parse_omex_content(sample_omex_path: Path) -> None:
     # Check simulations found
     assert len(omex_content.simulations) >= 1
     # The sample OMEX uses CVODE (KISAO:0000019)
-    kisao_ids = [sim.algorithm_kisao_id for sim in omex_content.simulations]
+    kisao_ids = [sim.algorithm.id for sim in omex_content.simulations]
     assert "KISAO:0000019" in kisao_ids
+    # Check that algorithm name is populated
+    cvode_sims = [sim for sim in omex_content.simulations if sim.algorithm.id == "KISAO:0000019"]
+    assert cvode_sims[0].algorithm.name == "CVODE"
 
     # Check simulation types
     sim_types = [sim.simulation_type for sim in omex_content.simulations]
@@ -66,7 +69,7 @@ def test_parse_omex_deduplicates_simulations(sample_omex_path: Path) -> None:
     # Check no duplicate algorithm+type combinations
     seen = set()
     for sim in omex_content.simulations:
-        key = (sim.algorithm_kisao_id, sim.simulation_type)
+        key = (sim.algorithm.id, sim.simulation_type)
         assert key not in seen, f"Duplicate simulation: {key}"
         seen.add(key)
 

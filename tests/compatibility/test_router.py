@@ -120,13 +120,26 @@ def test_check_compatibility_success(
 
     # Check response structure
     assert "omex_content" in data
-    assert "compatible_simulators" in data
-    assert "equivalent_simulators" in data
+    assert "simulators" in data
 
     # Check OMEX content was parsed
     assert len(data["omex_content"]["sedml_files"]) >= 1
     assert len(data["omex_content"]["simulations"]) >= 1
 
+    # Check simulations have algorithm with id and name
+    for sim in data["omex_content"]["simulations"]:
+        assert "algorithm" in sim
+        assert "id" in sim["algorithm"]
+        assert "name" in sim["algorithm"]
+
     # Check at least tellurium is compatible (it supports CVODE)
-    simulator_ids = [s["id"] for s in data["compatible_simulators"]]
+    simulator_ids = [s["id"] for s in data["simulators"]]
     assert "tellurium" in simulator_ids
+
+    # Check simulator has exact_match flag and algorithm names
+    tellurium = next(s for s in data["simulators"] if s["id"] == "tellurium")
+    assert "exact_match" in tellurium
+    assert tellurium["exact_match"] is True
+    assert len(tellurium["algorithms"]) > 0
+    assert "id" in tellurium["algorithms"][0]
+    assert "name" in tellurium["algorithms"][0]

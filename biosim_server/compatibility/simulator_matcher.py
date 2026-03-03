@@ -7,7 +7,8 @@ import aiohttp
 from aiocache import SimpleMemoryCache, cached  # type: ignore
 
 from biosim_server.biosim_runs import BiosimulatorVersion
-from biosim_server.compatibility.models import CompatibleSimulator, OmexContent
+from biosim_server.compatibility.kisao_data import EQUIVALENCE_CATEGORIES, KISAO_TERMS
+from biosim_server.compatibility.models import CompatibleSimulator, KisaoTerm, OmexContent
 from biosim_server.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -31,66 +32,6 @@ SIMULATION_TYPE_MAP = {
     "analysis": "SedAnalysis",
 }
 
-# Groups of equivalent/related algorithms by category
-# These are algorithms that solve similar problems and can often substitute for each other
-EQUIVALENT_ALGORITHMS: dict[str, set[str]] = {
-    # Deterministic ODE solvers (continuous dynamics)
-    "ode_solvers": {
-        "KISAO:0000019",  # CVODE
-        "KISAO:0000088",  # LSODA
-        "KISAO:0000560",  # LSODI
-        "KISAO:0000030",  # Euler forward
-        "KISAO:0000031",  # Euler backward
-        "KISAO:0000032",  # Runge-Kutta 4th order
-        "KISAO:0000086",  # Runge-Kutta-Fehlberg
-        "KISAO:0000087",  # Dormand-Prince
-        "KISAO:0000280",  # Adams-Moulton
-        "KISAO:0000288",  # BDF
-        "KISAO:0000535",  # VODE
-        "KISAO:0000536",  # ZVODE
-        "KISAO:0000304",  # RADAU5
-        "KISAO:0000094",  # Bulirsch-Stoer
-    },
-    # Stochastic simulation algorithms
-    "stochastic": {
-        "KISAO:0000029",  # Gillespie direct
-        "KISAO:0000027",  # Gibson-Bruck next reaction
-        "KISAO:0000038",  # Tau-leaping
-        "KISAO:0000039",  # Adaptive tau-leaping
-        "KISAO:0000028",  # Slow-scale SSA
-        "KISAO:0000082",  # Binomial tau-leaping
-        "KISAO:0000084",  # Multinomial tau-leaping
-        "KISAO:0000241",  # Gillespie multi-particle
-        "KISAO:0000331",  # Exact R-leaping
-        "KISAO:0000333",  # Constant-tau-leaping
-        "KISAO:0000323",  # Sorting direct method
-        "KISAO:0000324",  # Logarithmic direct method
-        "KISAO:0000350",  # Poisson tau-leaping
-    },
-    # Steady state / root finding
-    "steady_state": {
-        "KISAO:0000569",  # NLEQ2 / Newton-type
-        "KISAO:0000407",  # Steady state method
-        "KISAO:0000408",  # Newton's method
-        "KISAO:0000282",  # Broyden's method
-        "KISAO:0000283",  # Kinsol
-        "KISAO:0000437",  # Damped Newton
-    },
-    # Hybrid methods (stochastic + deterministic)
-    "hybrid": {
-        "KISAO:0000231",  # Hybrid Gibson-Bruck
-        "KISAO:0000563",  # Hybrid adaptive
-        "KISAO:0000230",  # Hybrid Runge-Kutta
-        "KISAO:0000352",  # Hybrid tau-leaping
-    },
-    # Flux balance analysis
-    "fba": {
-        "KISAO:0000437",  # FBA
-        "KISAO:0000527",  # parsimonious FBA
-        "KISAO:0000528",  # geometric FBA
-    },
-}
-
 
 def _normalize_kisao_id(kisao_id: str) -> str:
     """Normalize KiSAO ID to format KISAO:XXXXXXX."""
@@ -101,13 +42,207 @@ def _normalize_kisao_id(kisao_id: str) -> str:
     return kisao_id
 
 
-def _get_algorithm_group(kisao_id: str) -> str | None:
-    """Find the group a KiSAO ID belongs to."""
+def get_kisao_term_name_sync(kisao_id: str) -> str:
+    """Get the human-readable name for a KiSAO term (synchronous).
+
+    Uses the static KISAO_TERMS data.
+
+    Args:
+        kisao_id: Normalized KiSAO ID (e.g., "KISAO:0000019")
+
+    Returns:
+        Human-readable name (e.g., "CVODE") or the ID if name not found
+    """
+    normalized_id = _normalize_kisao_id(kisao_id)
+    term_data = KISAO_TERMS.get(normalized_id)
+    if term_data:
+        return term_data["name"]
+    return normalized_id
+
+
+@cached(ttl=86400, cache=SimpleMemoryCache)  # type: ignore
+async def get_kisao_term_name(kisao_id: str) -> str:
+    """Get the human-readable name for a KiSAO term.
+
+    Uses static KISAO_TERMS data first, then falls back to OLS API.
+
+    Args:
+        kisao_id: Normalized KiSAO ID (e.g., "KISAO:0000019")
+
+    Returns:
+        Human-readable name (e.g., "CVODE") or the ID if name not found
+    """
+    normalized_id = _normalize_kisao_id(kisao_id)
+
+    # Check static data first
+    term_data = KISAO_TERMS.get(normalized_id)
+    if term_data:
+        return term_data["name"]
+
+    # Fall back to OLS API for unknown terms
+    try:
+        async with aiohttp.ClientSession() as session:
+            # OLS uses underscore format: KISAO_0000019
+            ols_id = normalized_id.replace(":", "_")
+            url = f"https://www.ebi.ac.uk/ols4/api/ontologies/kisao/terms?iri=http://www.biomodels.net/kisao/KISAO%23{ols_id}"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    terms = data.get("_embedded", {}).get("terms", [])
+                    if terms and "label" in terms[0]:
+                        name: str = terms[0]["label"]
+                        return name
+    except Exception as e:
+        logger.debug(f"Failed to fetch KiSAO term name for {normalized_id}: {e}")
+
+    # Return the ID if we couldn't find a name
+    return normalized_id
+
+
+async def create_kisao_term(kisao_id: str) -> KisaoTerm:
+    """Create a KisaoTerm with ID and name.
+
+    Args:
+        kisao_id: KiSAO ID (will be normalized)
+
+    Returns:
+        KisaoTerm with id and name
+    """
+    normalized_id = _normalize_kisao_id(kisao_id)
+    name = await get_kisao_term_name(normalized_id)
+    return KisaoTerm(id=normalized_id, name=name)
+
+
+def _get_algorithm_ancestors(kisao_id: str) -> set[str]:
+    """Get all ancestors for a KiSAO algorithm ID.
+
+    Args:
+        kisao_id: KiSAO ID (will be normalized)
+
+    Returns:
+        Set of ancestor KiSAO IDs, or empty set if not found
+    """
     normalized = _normalize_kisao_id(kisao_id)
-    for group_name, group_ids in EQUIVALENT_ALGORITHMS.items():
-        if normalized in group_ids:
-            return group_name
-    return None
+    term_data = KISAO_TERMS.get(normalized)
+    if term_data:
+        return set(term_data["ancestors"])
+    return set()
+
+
+def _get_equivalence_ancestors(kisao_id: str) -> set[str]:
+    """Get equivalence category ancestors for an algorithm.
+
+    Returns the intersection of the algorithm's ancestors with the
+    equivalence categories. These are the meaningful groupings (like
+    "ODE solver", "stochastic method") that define equivalence.
+
+    Args:
+        kisao_id: KiSAO ID (will be normalized)
+
+    Returns:
+        Set of equivalence category IDs that this algorithm belongs to
+    """
+    ancestors = _get_algorithm_ancestors(kisao_id)
+    # Also include the ID itself if it's an equivalence category
+    normalized = _normalize_kisao_id(kisao_id)
+    all_ids = ancestors | {normalized}
+    return all_ids & EQUIVALENCE_CATEGORIES
+
+
+def are_algorithms_equivalent(kisao_id1: str, kisao_id2: str) -> bool:
+    """Check if two algorithms are equivalent based on shared ancestors.
+
+    Two algorithms are considered equivalent if they share at least one
+    ancestor in the EQUIVALENCE_CATEGORIES set (excluding the root
+    KISAO:0000000 which is too broad).
+
+    Args:
+        kisao_id1: First KiSAO ID
+        kisao_id2: Second KiSAO ID
+
+    Returns:
+        True if the algorithms are equivalent
+    """
+    # Same algorithm is always equivalent
+    norm1 = _normalize_kisao_id(kisao_id1)
+    norm2 = _normalize_kisao_id(kisao_id2)
+    if norm1 == norm2:
+        return True
+
+    # Get equivalence ancestors for both
+    eq1 = _get_equivalence_ancestors(norm1)
+    eq2 = _get_equivalence_ancestors(norm2)
+
+    # Find shared ancestors, excluding the root (too broad)
+    shared = eq1 & eq2
+    shared.discard("KISAO:0000000")
+
+    return len(shared) > 0
+
+
+def _ancestor_depth(kisao_id: str) -> int:
+    """Return the depth of a term in the ontology (number of its ancestors)."""
+    term_data = KISAO_TERMS.get(kisao_id)
+    return len(term_data["ancestors"]) if term_data else 0
+
+
+def _find_most_specific_common_ancestor(kisao_id1: str, kisao_id2: str) -> str | None:
+    """Find the most specific shared ancestor in the full ontology.
+
+    Among all shared ancestors (excluding the root), returns the one that
+    is deepest in the hierarchy (has the most ancestors itself).
+
+    Args:
+        kisao_id1: First KiSAO ID
+        kisao_id2: Second KiSAO ID
+
+    Returns:
+        KiSAO ID of the most specific common ancestor, or None if none found
+    """
+    norm1 = _normalize_kisao_id(kisao_id1)
+    norm2 = _normalize_kisao_id(kisao_id2)
+
+    ancestors1 = _get_algorithm_ancestors(norm1) | {norm1}
+    ancestors2 = _get_algorithm_ancestors(norm2) | {norm2}
+
+    shared = ancestors1 & ancestors2
+    shared.discard("KISAO:0000000")
+    # Remove the algorithms themselves — we want a true ancestor
+    shared.discard(norm1)
+    shared.discard(norm2)
+
+    if not shared:
+        return None
+
+    return max(shared, key=_ancestor_depth)
+
+
+def _find_equivalence_category(kisao_id1: str, kisao_id2: str) -> str | None:
+    """Find the most specific shared equivalence category ancestor.
+
+    Among the shared equivalence category ancestors (excluding the root),
+    returns the one that is deepest in the hierarchy.
+
+    Args:
+        kisao_id1: First KiSAO ID
+        kisao_id2: Second KiSAO ID
+
+    Returns:
+        KiSAO ID of the most specific equivalence category, or None if none found
+    """
+    norm1 = _normalize_kisao_id(kisao_id1)
+    norm2 = _normalize_kisao_id(kisao_id2)
+
+    eq1 = _get_equivalence_ancestors(norm1)
+    eq2 = _get_equivalence_ancestors(norm2)
+
+    shared = eq1 & eq2
+    shared.discard("KISAO:0000000")
+
+    if not shared:
+        return None
+
+    return max(shared, key=_ancestor_depth)
 
 
 @cached(ttl=3600, cache=SimpleMemoryCache)  # type: ignore
@@ -141,7 +276,7 @@ async def _get_simulator_spec(simulator_id: str, version: str) -> dict[str, Any]
 async def find_compatible_simulators(
     omex_content: OmexContent,
     simulator_versions: list[BiosimulatorVersion]
-) -> tuple[list[CompatibleSimulator], list[CompatibleSimulator]]:
+) -> list[CompatibleSimulator]:
     """Find simulators compatible with the OMEX archive requirements.
 
     Args:
@@ -149,10 +284,11 @@ async def find_compatible_simulators(
         simulator_versions: Available simulator versions
 
     Returns:
-        Tuple of (exact_matches, equivalent_matches)
+        List of compatible simulators with exact_match flag indicating
+        whether they support the exact algorithm or an equivalent one
     """
     if not omex_content.simulations or not omex_content.model_formats:
-        return [], []
+        return []
 
     # Get required model formats as EDAM IDs
     required_edam_formats: set[str] = set()
@@ -162,26 +298,18 @@ async def find_compatible_simulators(
             required_edam_formats.add(edam_id)
 
     if not required_edam_formats:
-        return [], []
+        return []
 
     # Get required algorithm KiSAO IDs
     required_algorithms: set[str] = set()
     required_sim_types: set[str] = set()
     for sim in omex_content.simulations:
-        required_algorithms.add(_normalize_kisao_id(sim.algorithm_kisao_id))
+        required_algorithms.add(_normalize_kisao_id(sim.algorithm.id))
         biosim_type = SIMULATION_TYPE_MAP.get(sim.simulation_type)
         if biosim_type:
             required_sim_types.add(biosim_type)
 
-    # Find algorithm groups for equivalent matching
-    required_groups: set[str] = set()
-    for req_alg in required_algorithms:
-        group = _get_algorithm_group(req_alg)
-        if group:
-            required_groups.add(group)
-
-    exact_matches: list[CompatibleSimulator] = []
-    equivalent_matches: list[CompatibleSimulator] = []
+    simulators: list[CompatibleSimulator] = []
 
     # Group simulator versions by ID to get only the latest version
     latest_versions: dict[str, BiosimulatorVersion] = {}
@@ -200,7 +328,7 @@ async def find_compatible_simulators(
 
         # Check each algorithm in the simulator
         exact_algorithm_matches: list[str] = []
-        equivalent_algorithm_matches: list[str] = []
+        equivalent_algorithm_matches: list[tuple[str, str]] = []  # (sim_alg, req_alg)
 
         for alg_raw in algorithms_raw:
             if not isinstance(alg_raw, dict):
@@ -240,30 +368,62 @@ async def find_compatible_simulators(
             if alg_kisao in required_algorithms:
                 exact_algorithm_matches.append(alg_kisao)
             else:
-                # Check equivalent algorithm match
-                alg_group = _get_algorithm_group(alg_kisao)
-                if alg_group and alg_group in required_groups:
-                    equivalent_algorithm_matches.append(alg_kisao)
+                # Check equivalent algorithm match using ancestor-based equivalence
+                for req_alg in required_algorithms:
+                    if are_algorithms_equivalent(alg_kisao, req_alg):
+                        equivalent_algorithm_matches.append((alg_kisao, req_alg))
+                        break
 
+        # Prefer exact matches; if none, use equivalent matches
         if exact_algorithm_matches:
-            exact_matches.append(CompatibleSimulator(
+            # Build KisaoTerm objects for matched algorithms
+            algorithm_terms = [await create_kisao_term(alg_id) for alg_id in exact_algorithm_matches]
+            simulators.append(CompatibleSimulator(
                 id=simulator_version.id,
                 name=simulator_version.name,
                 version=simulator_version.version,
                 image_url=simulator_version.image_url,
-                algorithms=exact_algorithm_matches
+                algorithms=algorithm_terms,
+                exact_match=True
             ))
         elif equivalent_algorithm_matches:
-            equivalent_matches.append(CompatibleSimulator(
+            algorithm_terms = [await create_kisao_term(sim_alg) for sim_alg, _ in equivalent_algorithm_matches]
+
+            # Find best common ancestor and equivalence category across all matched pairs
+            best_ancestor_id: str | None = None
+            best_ancestor_depth = -1
+            best_category_id: str | None = None
+            best_category_depth = -1
+            for sim_alg, req_alg in equivalent_algorithm_matches:
+                ancestor_id = _find_most_specific_common_ancestor(sim_alg, req_alg)
+                if ancestor_id:
+                    depth = _ancestor_depth(ancestor_id)
+                    if depth > best_ancestor_depth:
+                        best_ancestor_depth = depth
+                        best_ancestor_id = ancestor_id
+
+                category_id = _find_equivalence_category(sim_alg, req_alg)
+                if category_id:
+                    depth = _ancestor_depth(category_id)
+                    if depth > best_category_depth:
+                        best_category_depth = depth
+                        best_category_id = category_id
+
+            common_ancestor = await create_kisao_term(best_ancestor_id) if best_ancestor_id else None
+            equivalence_category = await create_kisao_term(best_category_id) if best_category_id else None
+
+            simulators.append(CompatibleSimulator(
                 id=simulator_version.id,
                 name=simulator_version.name,
                 version=simulator_version.version,
                 image_url=simulator_version.image_url,
-                algorithms=equivalent_algorithm_matches
+                algorithms=algorithm_terms,
+                exact_match=False,
+                common_ancestor=common_ancestor,
+                equivalence_category=equivalence_category
             ))
 
-    # Sort by simulator name
-    exact_matches.sort(key=lambda s: s.name.lower())
-    equivalent_matches.sort(key=lambda s: s.name.lower())
+    # Sort by exact_match (True first), then by simulator name
+    simulators.sort(key=lambda s: (not s.exact_match, s.name.lower()))
 
-    return exact_matches, equivalent_matches
+    return simulators

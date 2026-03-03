@@ -8,9 +8,15 @@ class ModelFormat(BaseModel):
     location: str  # File path in archive
 
 
+class KisaoTerm(BaseModel):
+    """A KiSAO ontology term with ID and human-readable name."""
+    id: str  # e.g., "KISAO:0000019"
+    name: str  # e.g., "CVODE"
+
+
 class SimulationRequirement(BaseModel):
     """Represents a simulation algorithm requirement from a SED-ML file."""
-    algorithm_kisao_id: str  # e.g., "KISAO:0000019"
+    algorithm: KisaoTerm
     simulation_type: str  # e.g., "uniformTimeCourse"
 
 
@@ -27,11 +33,13 @@ class CompatibleSimulator(BaseModel):
     name: str
     version: str
     image_url: str | None = None
-    algorithms: list[str]  # KiSAO IDs that match
+    algorithms: list[KisaoTerm]  # KiSAO terms that match
+    exact_match: bool  # True if simulator supports exact algorithm, False if equivalent
+    common_ancestor: KisaoTerm | None = None  # Most specific shared ontology ancestor (for equivalent matches)
+    equivalence_category: KisaoTerm | None = None  # Curated category that caused the match (for equivalent matches)
 
 
 class CompatibilityResponse(BaseModel):
     """Response from the compatibility check endpoint."""
     omex_content: OmexContent
-    compatible_simulators: list[CompatibleSimulator]  # Exact algorithm matches
-    equivalent_simulators: list[CompatibleSimulator]  # Equivalent algorithm matches
+    simulators: list[CompatibleSimulator]  # All compatible simulators (exact and equivalent)

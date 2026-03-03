@@ -5,9 +5,17 @@ import xml.etree.ElementTree as ET
 import zipfile
 from io import BytesIO
 
-from biosim_server.compatibility.models import ModelFormat, OmexContent, SimulationRequirement
+from biosim_server.compatibility.models import KisaoTerm, ModelFormat, OmexContent, SimulationRequirement
+from biosim_server.compatibility.simulator_matcher import _normalize_kisao_id, get_kisao_term_name_sync
 
 logger = logging.getLogger(__name__)
+
+
+def _create_kisao_term(kisao_id: str) -> KisaoTerm:
+    """Create a KisaoTerm with ID and name from static KISAO data."""
+    normalized_id = _normalize_kisao_id(kisao_id)
+    name = get_kisao_term_name_sync(normalized_id)
+    return KisaoTerm(id=normalized_id, name=name)
 
 # Namespaces used in OMEX/SED-ML files
 OMEX_MANIFEST_NS = "http://identifiers.org/combine.specifications/omex-manifest"
@@ -93,7 +101,7 @@ def parse_omex_content(file_content: bytes) -> OmexContent:
     seen_algorithms: set[tuple[str, str]] = set()
     unique_simulations: list[SimulationRequirement] = []
     for sim in simulations:
-        key = (sim.algorithm_kisao_id, sim.simulation_type)
+        key = (sim.algorithm.id, sim.simulation_type)
         if key not in seen_algorithms:
             seen_algorithms.add(key)
             unique_simulations.append(sim)
@@ -144,7 +152,7 @@ def _parse_sedml(sedml_content: bytes, model_formats: list[ModelFormat]) -> list
                 kisao_id = algorithm.get("kisaoID")
                 if kisao_id:
                     simulations.append(SimulationRequirement(
-                        algorithm_kisao_id=kisao_id,
+                        algorithm=_create_kisao_term(kisao_id),
                         simulation_type=SIMULATION_TYPE_MAP[sim_type_name]
                     ))
 

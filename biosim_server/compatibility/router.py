@@ -65,12 +65,9 @@ async def check_compatibility(
         raise HTTPException(status_code=503, detail=f"Failed to fetch simulator information: {e}")
 
     # Find compatible simulators
-    exact_matches, equivalent_matches = await find_compatible_simulators(
-        omex_content, simulator_versions
-    )
+    simulators = await find_compatible_simulators(omex_content, simulator_versions)
 
     return CompatibilityResponse(
         omex_content=omex_content,
-        compatible_simulators=exact_matches,
-        equivalent_simulators=equivalent_matches
+        simulators=simulators
     )
