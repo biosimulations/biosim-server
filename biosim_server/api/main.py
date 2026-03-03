@@ -45,6 +45,7 @@ APP_ORIGINS = [
     'http://localhost:4201',
     'http://localhost:4202',
     'http://localhost:8000',
+    'http://localhost:3000',
     'http://localhost:3001',
     'https://biosimulators.org',
     'https://www.biosimulators.org',
