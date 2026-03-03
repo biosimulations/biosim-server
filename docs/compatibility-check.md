@@ -58,7 +58,7 @@ For each available simulator, we fetch its specification from `api.biosimulators
 
 ### Output
 
-The response categorizes simulators into two groups:
+The response returns a single list of compatible simulators, each with an `exact_match` flag:
 
 ```json
 {
@@ -67,18 +67,19 @@ The response categorizes simulators into two groups:
     "simulations": [...],
     "sedml_files": [...]
   },
-  "compatible_simulators": [...],
-  "equivalent_simulators": [...]
+  "simulators": [...]
 }
 ```
 
-#### Exact Matches (`compatible_simulators`)
+Each simulator includes:
+- `exact_match: true` - Supports the **exact algorithm** requested (e.g., CVODE for CVODE)
+- `exact_match: false` - Supports an **equivalent algorithm** from the same category
+- `common_ancestor` - (equivalent matches only) The most specific shared ancestor in the KiSAO ontology between the requested and matched algorithms
+- `equivalence_category` - (equivalent matches only) The curated category that caused the match (from `equivalence_categories.yaml`)
 
-Simulators that support the **exact algorithm** requested. For example, if the SED-ML specifies CVODE (`KISAO:0000019`), these simulators explicitly support CVODE.
+Algorithm information includes both the KiSAO ID and human-readable name (e.g., `{"id": "KISAO:0000019", "name": "CVODE"}`).
 
-#### Equivalent Matches (`equivalent_simulators`)
-
-Simulators that support an **equivalent algorithm** from the same category. Algorithm categories include:
+Algorithm categories for equivalent matching include:
 
 | Category | Example Algorithms |
 |----------|-------------------|
@@ -95,11 +96,13 @@ This allows users to find simulators that can solve the same type of problem eve
 
 ```
 biosim_server/compatibility/
-├── __init__.py           # Module exports
-├── models.py             # Pydantic models for request/response
-├── omex_parser.py        # ZIP + XML parsing logic
-├── simulator_matcher.py  # Algorithm matching and API calls
-└── router.py             # FastAPI endpoint definition
+├── __init__.py                    # Module exports
+├── equivalence_categories.yaml    # Curated algorithm equivalence groups
+├── kisao_data.py                  # Auto-generated KiSAO ontology data
+├── models.py                      # Pydantic models for request/response
+├── omex_parser.py                 # ZIP + XML parsing logic
+├── simulator_matcher.py           # Algorithm matching and API calls
+└── router.py                      # FastAPI endpoint definition
 ```
 
 ### Key Design Decisions
@@ -138,7 +141,7 @@ curl -X POST "http://localhost:8000/compatibility/check" \
   -F "uploaded_file=@model.omex"
 ```
 
-Response:
+Response (abbreviated — a real response includes more simulators):
 ```json
 {
   "omex_content": {
@@ -146,46 +149,70 @@ Response:
       {
         "format_uri": "http://identifiers.org/combine.specifications/sbml",
         "language": "urn:sedml:language:sbml.level-2.version-4",
-        "location": "model.xml"
+        "location": "BIOMD0000000010_url.xml"
       }
     ],
     "simulations": [
       {
-        "algorithm_kisao_id": "KISAO:0000019",
+        "algorithm": {
+          "id": "KISAO:0000019",
+          "name": "CVODE"
+        },
         "simulation_type": "uniformTimeCourse"
       }
     ],
-    "sedml_files": ["simulation.sedml"]
+    "sedml_files": ["BIOMD0000000010_url.sedml"]
   },
-  "compatible_simulators": [
+  "simulators": [
     {
       "id": "tellurium",
       "name": "tellurium",
-      "version": "2.2.10",
-      "image_url": "ghcr.io/biosimulators/tellurium:2.2.10",
-      "algorithms": ["KISAO:0000019"]
+      "version": "2.2.1",
+      "image_url": "ghcr.io/biosimulators/tellurium:2.2.1",
+      "algorithms": [{"id": "KISAO:0000019", "name": "CVODE"}],
+      "exact_match": true,
+      "common_ancestor": null,
+      "equivalence_category": null
+    },
+    {
+      "id": "vcell",
+      "name": "Virtual Cell",
+      "version": "7.4.0.26",
+      "image_url": "ghcr.io/biosimulators/vcell:7.4.0.26",
+      "algorithms": [{"id": "KISAO:0000019", "name": "CVODE"}],
+      "exact_match": true,
+      "common_ancestor": null,
+      "equivalence_category": null
+    },
+    {
+      "id": "amici",
+      "name": "AMICI",
+      "version": "0.11.22",
+      "image_url": "ghcr.io/biosimulators/amici:0.11.22",
+      "algorithms": [{"id": "KISAO:0000496", "name": "CVODES"}],
+      "exact_match": false,
+      "common_ancestor": {"id": "KISAO:0000433", "name": "CVODE-like method"},
+      "equivalence_category": {"id": "KISAO:0000433", "name": "CVODE-like method"}
     },
     {
       "id": "copasi",
       "name": "COPASI",
-      "version": "4.45.296",
-      "image_url": "ghcr.io/biosimulators/copasi:4.45.296",
-      "algorithms": ["KISAO:0000019"]
-    }
-  ],
-  "equivalent_simulators": [
-    {
-      "id": "vcell",
-      "name": "Virtual Cell",
-      "version": "7.7.0.13",
-      "image_url": "ghcr.io/biosimulators/vcell:7.7.0.13",
-      "algorithms": ["KISAO:0000088"]
+      "version": "4.34.251",
+      "image_url": "ghcr.io/biosimulators/copasi:4.34.251",
+      "algorithms": [
+        {"id": "KISAO:0000560", "name": "LSODA/LSODAR hybrid method"},
+        {"id": "KISAO:0000304", "name": "Radau method"}
+      ],
+      "exact_match": false,
+      "common_ancestor": {"id": "KISAO:0000694", "name": "ODE solver"},
+      "equivalence_category": {"id": "KISAO:0000694", "name": "ODE solver"}
     }
   ]
 }
 ```
 
-In this example:
+In this example (using the `BIOMD0000000010` test fixture):
 - The model uses SBML with the CVODE algorithm
-- Tellurium and COPASI directly support CVODE (exact matches)
-- VCell supports LSODA, an equivalent ODE solver (equivalent match)
+- Tellurium and VCell directly support CVODE (`exact_match: true`)
+- AMICI supports CVODES, matched via the "CVODE-like method" category — a close relative
+- COPASI supports LSODA/LSODAR and Radau, matched via the broader "ODE solver" category
