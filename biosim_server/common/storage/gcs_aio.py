@@ -73,7 +73,7 @@ async def get_gcs_modified_date(gcs_path: str, token: Token) -> datetime:
 
 
 async def get_listing_of_gcs(token: Token) -> list[ListingItem]:
-    logger.info(f"Retrieving file list from root of bucket")
+    logger.info("Retrieving file list from root of bucket")
     async with Storage(token=token) as client:
         metadata: dict[str, Any] = await client.list_objects(bucket=get_settings().storage_bucket)
         files: list[ListingItem] = [ListingItem(Key=item["id"], LastModified=datetime.fromisoformat(item["updated"]),
@@ -102,7 +102,7 @@ async def get_gcs_file_contents(gcs_path: str, token: Token) -> bytes | None:
         return None
 
 async def main() -> None:
-    settings = get_settings()
+    get_settings()
     token = create_token()
     # await download_gcs_file(gcs_path="local_data/toy_zarr/.zarray", file_path=Path(".zarray"), token=token)
     print(f"datetime is {await get_gcs_modified_date(gcs_path='local_data/toy_zarr/.zarray', token=token)}")

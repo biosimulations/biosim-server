@@ -84,14 +84,14 @@ class OmexDatabaseServiceMongo(OmexDatabaseService):
 
     @override
     async def delete_all_omex_files(self) -> None:
-        logger.info(f"Deleting all OMEX file records")
+        logger.info("Deleting all OMEX file records")
         result = await self._omex_file_col.delete_many({})
         if not result.acknowledged:
             raise Exception("Delete failed")
 
     @override
     async def list_omex_files(self) -> list[OmexFile]:
-        logger.info(f"listing OMEX files")
+        logger.info("listing OMEX files")
         omex_files: list[OmexFile] = []
         for document in await self._omex_file_col.find().to_list(length=100):
             doc_dict = dict(document)

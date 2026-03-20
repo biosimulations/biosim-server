@@ -38,6 +38,9 @@ poetry run pytest tests/biosim_runs/test_sim_workflow.py -v
 Run these checks on every changeset before considering work complete:
 
 ```bash
+# Linting
+poetry run ruff check biosim_server/
+
 # Type checking (strict mode)
 poetry run mypy biosim_server
 

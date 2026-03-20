@@ -17,7 +17,7 @@ class SlurmService:
         self.ssh_service = ssh_service
 
     async def get_job_status(self, job_id: int | None = None) -> list[SlurmJob]:
-        command = f'squeue --json'
+        command = 'squeue --json'
         if job_id is not None:
              command = command + f' -j {job_id}'
         return_code, stdout, stderr = await self.ssh_service.run_command(command=command)
