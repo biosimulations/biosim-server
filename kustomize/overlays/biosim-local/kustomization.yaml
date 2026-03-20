@@ -5,9 +5,9 @@ namespace: biosim-local
 
 images:
 - name: ghcr.io/biosimulations/biosim-api
-  newTag: arm64_0.3.2
+  newTag: arm64_0.3.3
 - name: ghcr.io/biosimulations/biosim-worker
-  newTag: arm64_0.3.2
+  newTag: arm64_0.3.3
 - name: docker.io/library/mongo
   newTag: 8.0.4
 
