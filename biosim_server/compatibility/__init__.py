@@ -3,7 +3,8 @@ from biosim_server.compatibility.models import (
     ModelFormat,
     SimulationRequirement,
     OmexContent,
-    CompatibleSimulator,
+    SimulatorVersionDetail,
+    EligibleSimulator,
     CompatibilityResponse,
 )
 from biosim_server.compatibility.omex_parser import parse_omex_content
@@ -19,7 +20,8 @@ __all__ = [
     "ModelFormat",
     "SimulationRequirement",
     "OmexContent",
-    "CompatibleSimulator",
+    "SimulatorVersionDetail",
+    "EligibleSimulator",
     "CompatibilityResponse",
     "parse_omex_content",
     "find_compatible_simulators",

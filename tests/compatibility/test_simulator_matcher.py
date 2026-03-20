@@ -249,13 +249,34 @@ async def test_find_compatible_simulators_with_exact_match(
 
         assert len(simulators) == 1
         assert simulators[0].id == "tellurium"
-        assert simulators[0].exact_match is True
-        assert simulators[0].common_ancestor is None
-        assert simulators[0].equivalence_category is None
-        # Check algorithm has both id and name
-        alg_ids = [alg.id for alg in simulators[0].algorithms]
+        assert simulators[0].exact is True
+        assert simulators[0].versions == ["2.2.10"]
+        # version_details not populated in non-verbose mode
+        assert simulators[0].version_details is None
+
+    # Now test verbose mode
+    with patch(
+        "biosim_server.compatibility.simulator_matcher._get_simulator_spec",
+        new_callable=AsyncMock
+    ) as mock_get_spec:
+        mock_get_spec.return_value = tellurium_spec
+
+        simulators = await find_compatible_simulators(
+            sample_omex_content,
+            sample_simulator_versions[:1],
+            verbose=True,
+        )
+
+        assert len(simulators) == 1
+        assert simulators[0].version_details is not None
+        detail = simulators[0].version_details[0]
+        assert detail.exact is True
+        assert detail.version == "2.2.10"
+        assert detail.common_ancestor is None
+        assert detail.equivalence_category is None
+        alg_ids = [alg.id for alg in detail.algorithms]
         assert "KISAO:0000019" in alg_ids
-        assert simulators[0].algorithms[0].name == "CVODE"
+        assert detail.algorithms[0].name == "CVODE"
 
 
 @pytest.mark.asyncio
@@ -286,23 +307,27 @@ async def test_find_compatible_simulators_with_equivalent_match(
 
         simulators = await find_compatible_simulators(
             sample_omex_content,
-            sample_simulator_versions[1:2]  # Just copasi
+            sample_simulator_versions[1:2],  # Just copasi
+            verbose=True,
         )
 
         # LSODA is not an exact match for CVODE, but they're equivalent ODE solvers
         assert len(simulators) == 1
         assert simulators[0].id == "copasi"
-        assert simulators[0].exact_match is False
-        alg_ids = [alg.id for alg in simulators[0].algorithms]
+        assert simulators[0].exact is False
+        assert simulators[0].versions == ["4.45.296"]
+        assert simulators[0].version_details is not None
+        detail = simulators[0].version_details[0]
+        alg_ids = [alg.id for alg in detail.algorithms]
         assert "KISAO:0000088" in alg_ids
-        assert simulators[0].algorithms[0].name == "LSODA"
+        assert detail.algorithms[0].name == "LSODA"
         # Should have both ancestor fields populated
-        assert simulators[0].common_ancestor is not None
-        assert simulators[0].common_ancestor.id == "KISAO:0000694"  # ODE solver
-        assert simulators[0].common_ancestor.name == "ODE solver"
-        assert simulators[0].equivalence_category is not None
-        assert simulators[0].equivalence_category.id == "KISAO:0000694"  # ODE solver
-        assert simulators[0].equivalence_category.name == "ODE solver"
+        assert detail.common_ancestor is not None
+        assert detail.common_ancestor.id == "KISAO:0000694"  # ODE solver
+        assert detail.common_ancestor.name == "ODE solver"
+        assert detail.equivalence_category is not None
+        assert detail.equivalence_category.id == "KISAO:0000694"  # ODE solver
+        assert detail.equivalence_category.name == "ODE solver"
 
 
 @pytest.mark.asyncio
@@ -454,22 +479,25 @@ async def test_find_compatible_simulators_real_api() -> None:
         await biosim_service.close()
 
     # Find compatible simulators (calls real API for each simulator spec)
-    simulators = await find_compatible_simulators(omex_content, simulator_versions)
+    simulators = await find_compatible_simulators(omex_content, simulator_versions, verbose=True)
 
     # The sample OMEX uses SBML + CVODE, so we expect some matches
     assert len(simulators) > 0, "Should find at least one compatible simulator"
 
     # Tellurium should be an exact match (it supports CVODE)
-    exact_matches = [s for s in simulators if s.exact_match]
+    exact_matches = [s for s in simulators if s.exact]
     exact_ids = [s.id for s in exact_matches]
     assert "tellurium" in exact_ids, f"Tellurium should be an exact match. Found: {exact_ids}"
 
-    # Check that algorithms have names
+    # Check that version_details are populated in verbose mode
     for sim in simulators:
-        for alg in sim.algorithms:
-            assert alg.name, f"Algorithm {alg.id} should have a name"
+        assert sim.version_details is not None
+        assert len(sim.versions) == len(sim.version_details)
+        for detail in sim.version_details:
+            for alg in detail.algorithms:
+                assert alg.name, f"Algorithm {alg.id} should have a name"
 
     # Print results for debugging (visible with pytest -v)
-    equivalent_matches = [s for s in simulators if not s.exact_match]
+    equivalent_matches = [s for s in simulators if not s.exact]
     print(f"\nExact matches ({len(exact_matches)}): {[s.id for s in exact_matches]}")
     print(f"Equivalent matches ({len(equivalent_matches)}): {[s.id for s in equivalent_matches]}")

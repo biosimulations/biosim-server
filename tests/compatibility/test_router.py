@@ -34,13 +34,13 @@ def mock_biosim_service() -> AsyncMock:
     return service
 
 
-def test_check_compatibility_endpoint_exists() -> None:
-    """Test that the compatibility check endpoint exists."""
+def test_check_compatibility_no_input() -> None:
+    """Test that endpoint requires either file or URL."""
     client = TestClient(app)
-    # Just check the endpoint is registered (will fail without file)
     response = client.post("/compatibility/check")
-    # Should get 422 (validation error) not 404
-    assert response.status_code == 422
+    # Should get 400 because neither uploaded_file nor archive_url provided
+    assert response.status_code == 400
+    assert "Provide either" in response.json()["detail"]
 
 
 def test_check_compatibility_invalid_file() -> None:
@@ -119,8 +119,12 @@ def test_check_compatibility_success(
     data = response.json()
 
     # Check response structure
+    assert "omex_id" in data
     assert "omex_content" in data
-    assert "simulators" in data
+    assert "eligible_simulators" in data
+
+    # Check omex_id is an MD5 hex string
+    assert len(data["omex_id"]) == 32
 
     # Check OMEX content was parsed
     assert len(data["omex_content"]["sedml_files"]) >= 1
@@ -133,13 +137,13 @@ def test_check_compatibility_success(
         assert "name" in sim["algorithm"]
 
     # Check at least tellurium is compatible (it supports CVODE)
-    simulator_ids = [s["id"] for s in data["simulators"]]
+    simulator_ids = [s["id"] for s in data["eligible_simulators"]]
     assert "tellurium" in simulator_ids
 
-    # Check simulator has exact_match flag and algorithm names
-    tellurium = next(s for s in data["simulators"] if s["id"] == "tellurium")
-    assert "exact_match" in tellurium
-    assert tellurium["exact_match"] is True
-    assert len(tellurium["algorithms"]) > 0
-    assert "id" in tellurium["algorithms"][0]
-    assert "name" in tellurium["algorithms"][0]
+    # Check simulator has correct shape
+    tellurium = next(s for s in data["eligible_simulators"] if s["id"] == "tellurium")
+    assert tellurium["exact"] is True
+    assert isinstance(tellurium["versions"], list)
+    assert "2.2.10" in tellurium["versions"]
+    # version_details not populated in default (non-verbose) mode
+    assert tellurium["version_details"] is None

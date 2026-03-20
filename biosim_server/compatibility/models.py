@@ -27,19 +27,27 @@ class OmexContent(BaseModel):
     sedml_files: list[str]
 
 
-class CompatibleSimulator(BaseModel):
-    """A simulator that can run the OMEX archive."""
-    id: str
-    name: str
+class SimulatorVersionDetail(BaseModel):
+    """Per-version compatibility details (populated in verbose mode)."""
     version: str
     image_url: str | None = None
-    algorithms: list[KisaoTerm]  # KiSAO terms that match
-    exact_match: bool  # True if simulator supports exact algorithm, False if equivalent
-    common_ancestor: KisaoTerm | None = None  # Most specific shared ontology ancestor (for equivalent matches)
-    equivalence_category: KisaoTerm | None = None  # Curated category that caused the match (for equivalent matches)
+    algorithms: list[KisaoTerm] = []
+    exact: bool
+    common_ancestor: KisaoTerm | None = None
+    equivalence_category: KisaoTerm | None = None
+
+
+class EligibleSimulator(BaseModel):
+    """A simulator eligible to run the OMEX archive."""
+    id: str
+    name: str
+    versions: list[str]
+    exact: bool  # True if any version is an exact match
+    version_details: list[SimulatorVersionDetail] | None = None
 
 
 class CompatibilityResponse(BaseModel):
     """Response from the compatibility check endpoint."""
+    omex_id: str  # MD5 hash of the OMEX file
     omex_content: OmexContent
-    simulators: list[CompatibleSimulator]  # All compatible simulators (exact and equivalent)
+    eligible_simulators: list[EligibleSimulator]

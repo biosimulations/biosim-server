@@ -33,6 +33,18 @@ poetry run mypy biosim_server
 poetry run pytest tests/biosim_runs/test_sim_workflow.py -v
 ```
 
+## Verification
+
+Run these checks on every changeset before considering work complete:
+
+```bash
+# Type checking (strict mode)
+poetry run mypy biosim_server
+
+# Tests (exclude integration tests that hit external APIs)
+poetry run pytest -m "not integration"
+```
+
 ## Architecture
 
 ```

@@ -8,7 +8,7 @@ from aiocache import SimpleMemoryCache, cached  # type: ignore
 
 from biosim_server.biosim_runs import BiosimulatorVersion
 from biosim_server.compatibility.kisao_data import EQUIVALENCE_CATEGORIES, KISAO_TERMS
-from biosim_server.compatibility.models import CompatibleSimulator, KisaoTerm, OmexContent
+from biosim_server.compatibility.models import EligibleSimulator, KisaoTerm, OmexContent, SimulatorVersionDetail
 from biosim_server.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -273,19 +273,132 @@ async def _get_simulator_spec(simulator_id: str, version: str) -> dict[str, Any]
             return None
 
 
+async def _check_version_compatibility(
+    simulator_version: BiosimulatorVersion,
+    required_edam_formats: set[str],
+    required_algorithms: set[str],
+    required_sim_types: set[str],
+) -> SimulatorVersionDetail | None:
+    """Check a single simulator version against OMEX requirements.
+
+    Returns a SimulatorVersionDetail if compatible, None otherwise.
+    """
+    spec = await _get_simulator_spec(simulator_version.id, simulator_version.version)
+    if not spec:
+        return None
+
+    algorithms_raw = spec.get("algorithms", [])
+    if not algorithms_raw or not isinstance(algorithms_raw, list):
+        return None
+
+    exact_algorithm_matches: list[str] = []
+    equivalent_algorithm_matches: list[tuple[str, str]] = []  # (sim_alg, req_alg)
+
+    for alg_raw in algorithms_raw:
+        if not isinstance(alg_raw, dict):
+            continue
+        alg: dict[str, Any] = alg_raw
+
+        kisao_id_obj = alg.get("kisaoId", {})
+        if not isinstance(kisao_id_obj, dict):
+            continue
+        alg_kisao = _normalize_kisao_id(str(kisao_id_obj.get("id", "")))
+        if not alg_kisao:
+            continue
+
+        # Check model format support
+        model_formats_raw = alg.get("modelFormats", [])
+        if not isinstance(model_formats_raw, list):
+            continue
+        supported_formats = {str(mf.get("id", "")) for mf in model_formats_raw if isinstance(mf, dict)}
+        if not required_edam_formats.intersection(supported_formats):
+            continue
+
+        # Check simulation type support
+        sim_types_raw = alg.get("simulationTypes", [])
+        if not isinstance(sim_types_raw, list):
+            continue
+        supported_sim_types: set[str] = set()
+        for st in sim_types_raw:
+            if isinstance(st, str):
+                supported_sim_types.add(st)
+            elif isinstance(st, dict):
+                supported_sim_types.add(str(st.get("id", "")))
+        if required_sim_types and not required_sim_types.intersection(supported_sim_types):
+            continue
+
+        # Check exact algorithm match
+        if alg_kisao in required_algorithms:
+            exact_algorithm_matches.append(alg_kisao)
+        else:
+            for req_alg in required_algorithms:
+                if are_algorithms_equivalent(alg_kisao, req_alg):
+                    equivalent_algorithm_matches.append((alg_kisao, req_alg))
+                    break
+
+    # Prefer exact matches; if none, use equivalent matches
+    if exact_algorithm_matches:
+        algorithm_terms = [await create_kisao_term(alg_id) for alg_id in exact_algorithm_matches]
+        return SimulatorVersionDetail(
+            version=simulator_version.version,
+            image_url=simulator_version.image_url,
+            algorithms=algorithm_terms,
+            exact=True,
+        )
+    elif equivalent_algorithm_matches:
+        algorithm_terms = [await create_kisao_term(sim_alg) for sim_alg, _ in equivalent_algorithm_matches]
+
+        best_ancestor_id: str | None = None
+        best_ancestor_depth = -1
+        best_category_id: str | None = None
+        best_category_depth = -1
+        for sim_alg, req_alg in equivalent_algorithm_matches:
+            ancestor_id = _find_most_specific_common_ancestor(sim_alg, req_alg)
+            if ancestor_id:
+                depth = _ancestor_depth(ancestor_id)
+                if depth > best_ancestor_depth:
+                    best_ancestor_depth = depth
+                    best_ancestor_id = ancestor_id
+
+            category_id = _find_equivalence_category(sim_alg, req_alg)
+            if category_id:
+                depth = _ancestor_depth(category_id)
+                if depth > best_category_depth:
+                    best_category_depth = depth
+                    best_category_id = category_id
+
+        common_ancestor = await create_kisao_term(best_ancestor_id) if best_ancestor_id else None
+        equivalence_category = await create_kisao_term(best_category_id) if best_category_id else None
+
+        return SimulatorVersionDetail(
+            version=simulator_version.version,
+            image_url=simulator_version.image_url,
+            algorithms=algorithm_terms,
+            exact=False,
+            common_ancestor=common_ancestor,
+            equivalence_category=equivalence_category,
+        )
+
+    return None
+
+
 async def find_compatible_simulators(
     omex_content: OmexContent,
-    simulator_versions: list[BiosimulatorVersion]
-) -> list[CompatibleSimulator]:
+    simulator_versions: list[BiosimulatorVersion],
+    verbose: bool = False,
+) -> list[EligibleSimulator]:
     """Find simulators compatible with the OMEX archive requirements.
+
+    Checks all versions of each simulator for compatibility and groups
+    results by simulator id.
 
     Args:
         omex_content: Parsed OMEX content with requirements
         simulator_versions: Available simulator versions
+        verbose: If True, include per-version detail (algorithms, ancestry)
 
     Returns:
-        List of compatible simulators with exact_match flag indicating
-        whether they support the exact algorithm or an equivalent one
+        List of eligible simulators sorted by exact match then name
     """
     if not omex_content.simulations or not omex_content.model_formats:
         return []
@@ -309,121 +422,40 @@ async def find_compatible_simulators(
         if biosim_type:
             required_sim_types.add(biosim_type)
 
-    simulators: list[CompatibleSimulator] = []
+    # Check all versions in parallel
+    import asyncio
+    tasks = [
+        _check_version_compatibility(sv, required_edam_formats, required_algorithms, required_sim_types)
+        for sv in simulator_versions
+    ]
+    results = await asyncio.gather(*tasks)
 
-    # Group simulator versions by ID to get only the latest version
-    latest_versions: dict[str, BiosimulatorVersion] = {}
-    for sv in simulator_versions:
-        if sv.id not in latest_versions:
-            latest_versions[sv.id] = sv
-
-    for simulator_version in latest_versions.values():
-        spec = await _get_simulator_spec(simulator_version.id, simulator_version.version)
-        if not spec:
+    # Group compatible version details by simulator id
+    # Preserve simulator name from the version entries
+    simulator_names: dict[str, str] = {}
+    version_details_by_sim: dict[str, list[SimulatorVersionDetail]] = {}
+    for sv, detail in zip(simulator_versions, results):
+        if detail is None:
             continue
+        if sv.id not in version_details_by_sim:
+            version_details_by_sim[sv.id] = []
+            simulator_names[sv.id] = sv.name
+        version_details_by_sim[sv.id].append(detail)
 
-        algorithms_raw = spec.get("algorithms", [])
-        if not algorithms_raw or not isinstance(algorithms_raw, list):
-            continue
+    # Build EligibleSimulator list
+    eligible: list[EligibleSimulator] = []
+    for sim_id, details in version_details_by_sim.items():
+        any_exact = any(d.exact for d in details)
+        versions = [d.version for d in details]
+        eligible.append(EligibleSimulator(
+            id=sim_id,
+            name=simulator_names[sim_id],
+            versions=versions,
+            exact=any_exact,
+            version_details=details if verbose else None,
+        ))
 
-        # Check each algorithm in the simulator
-        exact_algorithm_matches: list[str] = []
-        equivalent_algorithm_matches: list[tuple[str, str]] = []  # (sim_alg, req_alg)
+    # Sort by exact (True first), then by name
+    eligible.sort(key=lambda s: (not s.exact, s.name.lower()))
 
-        for alg_raw in algorithms_raw:
-            if not isinstance(alg_raw, dict):
-                continue
-            alg: dict[str, Any] = alg_raw
-
-            kisao_id_obj = alg.get("kisaoId", {})
-            if not isinstance(kisao_id_obj, dict):
-                continue
-            alg_kisao = _normalize_kisao_id(str(kisao_id_obj.get("id", "")))
-            if not alg_kisao:
-                continue
-
-            # Check model format support
-            model_formats_raw = alg.get("modelFormats", [])
-            if not isinstance(model_formats_raw, list):
-                continue
-            supported_formats = {str(mf.get("id", "")) for mf in model_formats_raw if isinstance(mf, dict)}
-            if not required_edam_formats.intersection(supported_formats):
-                continue
-
-            # Check simulation type support
-            # API returns either strings or dicts with "id" key
-            sim_types_raw = alg.get("simulationTypes", [])
-            if not isinstance(sim_types_raw, list):
-                continue
-            supported_sim_types: set[str] = set()
-            for st in sim_types_raw:
-                if isinstance(st, str):
-                    supported_sim_types.add(st)
-                elif isinstance(st, dict):
-                    supported_sim_types.add(str(st.get("id", "")))
-            if required_sim_types and not required_sim_types.intersection(supported_sim_types):
-                continue
-
-            # Check exact algorithm match
-            if alg_kisao in required_algorithms:
-                exact_algorithm_matches.append(alg_kisao)
-            else:
-                # Check equivalent algorithm match using ancestor-based equivalence
-                for req_alg in required_algorithms:
-                    if are_algorithms_equivalent(alg_kisao, req_alg):
-                        equivalent_algorithm_matches.append((alg_kisao, req_alg))
-                        break
-
-        # Prefer exact matches; if none, use equivalent matches
-        if exact_algorithm_matches:
-            # Build KisaoTerm objects for matched algorithms
-            algorithm_terms = [await create_kisao_term(alg_id) for alg_id in exact_algorithm_matches]
-            simulators.append(CompatibleSimulator(
-                id=simulator_version.id,
-                name=simulator_version.name,
-                version=simulator_version.version,
-                image_url=simulator_version.image_url,
-                algorithms=algorithm_terms,
-                exact_match=True
-            ))
-        elif equivalent_algorithm_matches:
-            algorithm_terms = [await create_kisao_term(sim_alg) for sim_alg, _ in equivalent_algorithm_matches]
-
-            # Find best common ancestor and equivalence category across all matched pairs
-            best_ancestor_id: str | None = None
-            best_ancestor_depth = -1
-            best_category_id: str | None = None
-            best_category_depth = -1
-            for sim_alg, req_alg in equivalent_algorithm_matches:
-                ancestor_id = _find_most_specific_common_ancestor(sim_alg, req_alg)
-                if ancestor_id:
-                    depth = _ancestor_depth(ancestor_id)
-                    if depth > best_ancestor_depth:
-                        best_ancestor_depth = depth
-                        best_ancestor_id = ancestor_id
-
-                category_id = _find_equivalence_category(sim_alg, req_alg)
-                if category_id:
-                    depth = _ancestor_depth(category_id)
-                    if depth > best_category_depth:
-                        best_category_depth = depth
-                        best_category_id = category_id
-
-            common_ancestor = await create_kisao_term(best_ancestor_id) if best_ancestor_id else None
-            equivalence_category = await create_kisao_term(best_category_id) if best_category_id else None
-
-            simulators.append(CompatibleSimulator(
-                id=simulator_version.id,
-                name=simulator_version.name,
-                version=simulator_version.version,
-                image_url=simulator_version.image_url,
-                algorithms=algorithm_terms,
-                exact_match=False,
-                common_ancestor=common_ancestor,
-                equivalence_category=equivalence_category
-            ))
-
-    # Sort by exact_match (True first), then by simulator name
-    simulators.sort(key=lambda s: (not s.exact_match, s.name.lower()))
-
-    return simulators
+    return eligible

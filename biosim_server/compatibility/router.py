@@ -1,8 +1,10 @@
 """FastAPI router for OMEX compatibility checking."""
 
+import hashlib
 import logging
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+import aiohttp
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
 from biosim_server.compatibility.models import CompatibilityResponse
 from biosim_server.compatibility.omex_parser import parse_omex_content
@@ -19,26 +21,38 @@ router = APIRouter(prefix="/compatibility", tags=["Compatibility"])
     response_model=CompatibilityResponse,
     operation_id="check-compatibility",
     summary="Check OMEX archive compatibility with simulators",
-    description="Upload an OMEX archive to find compatible simulators based on model format and algorithm requirements."
+    description="Upload an OMEX archive or provide a URL to find compatible simulators based on model format and algorithm requirements."
 )
 async def check_compatibility(
-    uploaded_file: UploadFile = File(..., description="OMEX/COMBINE archive to check for compatibility")
+    uploaded_file: UploadFile | None = File(None, description="OMEX/COMBINE archive to check for compatibility"),
+    archive_url: str | None = Query(None, description="URL to an OMEX/COMBINE archive (alternative to file upload)"),
+    verbose: bool = Query(False, description="Include per-version algorithm and ontology details"),
 ) -> CompatibilityResponse:
-    """Check which simulators can run the uploaded OMEX archive.
+    """Check which simulators can run the given OMEX archive.
 
-    Analyzes the OMEX archive to extract:
-    - Model formats (SBML, CellML, etc.)
-    - Required simulation algorithms (from SED-ML files)
-
-    Then matches against available biosimulator capabilities to find:
-    - Exact matches: Simulators supporting the exact requested algorithms
-    - Equivalent matches: Simulators supporting equivalent algorithms (e.g., different ODE solvers)
+    Provide either an uploaded file or an archive URL. Analyzes the OMEX
+    archive to extract model formats and required simulation algorithms,
+    then matches against available biosimulator capabilities.
     """
-    # Read file content
-    try:
-        file_content = await uploaded_file.read()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read uploaded file: {e}")
+    # Get file content from upload or URL
+    if uploaded_file is not None:
+        try:
+            file_content = await uploaded_file.read()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read uploaded file: {e}")
+    elif archive_url is not None:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(archive_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status != 200:
+                        raise HTTPException(status_code=400, detail=f"Failed to download archive from URL: HTTP {resp.status}")
+                    file_content = await resp.read()
+        except aiohttp.ClientError as e:
+            raise HTTPException(status_code=400, detail=f"Failed to download archive from URL: {e}")
+    else:
+        raise HTTPException(status_code=400, detail="Provide either uploaded_file or archive_url")
+
+    omex_id = hashlib.md5(file_content).hexdigest()
 
     # Parse OMEX content
     try:
@@ -65,9 +79,10 @@ async def check_compatibility(
         raise HTTPException(status_code=503, detail=f"Failed to fetch simulator information: {e}")
 
     # Find compatible simulators
-    simulators = await find_compatible_simulators(omex_content, simulator_versions)
+    eligible = await find_compatible_simulators(omex_content, simulator_versions, verbose=verbose)
 
     return CompatibilityResponse(
+        omex_id=omex_id,
         omex_content=omex_content,
-        simulators=simulators
+        eligible_simulators=eligible,
     )
