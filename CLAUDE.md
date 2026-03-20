@@ -173,26 +173,34 @@ pytest tests/biosim_verify/test_hdf5_compare.py -v
 pytest -m "not integration"
 ```
 
-## Docker
+## Deploy
 
-```bash
-# Build API image
-docker build -f Dockerfile-api -t biosim-api .
+To release a new version:
 
-# Build Worker image
-docker build -f Dockerfile-worker -t biosim-worker .
-```
-
-## Kubernetes
-
-```bash
-# Deploy to cluster
-cd kustomize
-kubectl kustomize overlays/dev | kubectl apply -f -
-
-# Check status
-kubectl get pods -n biosim
-```
+1. **Bump version** in `biosim_server/version.py` and `pyproject.toml`
+2. **Update kustomize overlays** — set `newTag` in each overlay's `kustomization.yaml`:
+   - `kustomize/overlays/biosim-gke/kustomization.yaml` (amd64)
+   - `kustomize/overlays/biosim-rke/kustomization.yaml` (amd64)
+   - `kustomize/overlays/biosim-local/kustomization.yaml` (arm64)
+3. **Build and push Docker images** (builds api + worker for amd64 + arm64):
+   ```bash
+   bash kustomize/scripts/build_and_push.sh
+   ```
+4. **Commit, tag, and push**:
+   ```bash
+   git add -A && git commit -m "bump version to X.Y.Z and deploy"
+   git tag vX.Y.Z && git push origin <branch> && git push origin vX.Y.Z
+   ```
+5. **Apply to cluster** (example for biosim-gke):
+   ```bash
+   export KUBECONFIG=<path-to-kubeconfig>
+   cd kustomize/overlays/biosim-gke
+   kubectl kustomize . | kubectl apply -f -
+   ```
+6. **Verify**:
+   ```bash
+   kubectl get pods -n biosim-gke
+   ```
 
 ## Important Notes
 
