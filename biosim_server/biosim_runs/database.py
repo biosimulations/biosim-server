@@ -113,7 +113,7 @@ class DatabaseServiceMongo(DatabaseService):
 
     @override
     async def delete_all_biosimulator_workflow_runs(self) -> None:
-        logger.info(f"Deleting all OMEX file records")
+        logger.info("Deleting all OMEX file records")
         result = await self._sim_output_col.delete_many({})
         if not result.acknowledged:
             raise Exception("Delete failed")

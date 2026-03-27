@@ -45,6 +45,7 @@ async def test_get_output_not_found(omex_verify_workflow_input: OmexVerifyWorkfl
         assert response.status_code == 404
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(len(get_settings().storage_gcs_credentials_file) == 0,
                     reason="gcs_credentials.json file not supplied")
 @pytest.mark.asyncio

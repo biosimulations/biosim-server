@@ -148,14 +148,22 @@ async def submit_biosim_simulation_run_activity(input: SubmitBiosimSimulationRun
             activity.heartbeat("Polling simulation run status")
             simulation_run = await biosim_service.get_sim_run(simulation_run.id)
 
+        # retrieve the HDF5File from the completed run
+        # simdata API may lag behind the run status, so retry on 404
         hdf5_file: HDF5File | None = None
-        try:
-            # retrieve the HDF5File from the completed run
-            hdf5_file = await biosim_service.get_hdf5_metadata(simulation_run.id)
-        except ClientResponseError as e:
-            if e.status == 404:
-                activity.logger.exception(f"HDF5File for run id {simulation_run.id} not found.", exc_info=e)
-            raise e
+        max_hdf5_retries = 10
+        for attempt in range(max_hdf5_retries):
+            try:
+                hdf5_file = await biosim_service.get_hdf5_metadata(simulation_run.id)
+                break
+            except ClientResponseError as e:
+                if e.status == 404 and attempt < max_hdf5_retries - 1:
+                    activity.logger.info(f"HDF5 metadata not yet available for run {simulation_run.id}, "
+                                         f"retrying in 10s (attempt {attempt + 1}/{max_hdf5_retries})")
+                    activity.heartbeat("Waiting for HDF5 metadata")
+                    await asyncio.sleep(10)
+                else:
+                    raise e
 
         # save the simulation run in the database
         biosim_workflow_run = BiosimulatorWorkflowRun(

@@ -5,16 +5,13 @@ from typing import Any, Coroutine
 
 from pydantic import BaseModel
 from temporalio import workflow
-from temporalio.common import RetryPolicy
 from temporalio.workflow import ChildWorkflowHandle
 
 from biosim_server.biosim_omex import OmexFile
 from biosim_server.biosim_runs import BiosimulatorVersion, OmexSimWorkflow, OmexSimWorkflowInput, OmexSimWorkflowOutput, \
     BiosimulatorWorkflowRun
 from biosim_server.biosim_verify import CompareSettings
-from biosim_server.biosim_verify.activities import generate_statistics_activity, GenerateStatisticsActivityInput
-from biosim_server.biosim_verify.models import GenerateStatisticsActivityOutput, SimulationRunInfo, \
-    VerifyWorkflowStatus, VerifyWorkflowOutput
+from biosim_server.biosim_verify.models import VerifyWorkflowStatus, VerifyWorkflowOutput
 from biosim_server.biosim_verify.runs_verify_workflow import generate_statistics
 
 
@@ -79,7 +76,7 @@ class OmexVerifyWorkflow:
             simulator_workflow_runs.append(omex_sim_workflow_output.biosimulator_workflow_run)
 
         # Generate comparison report within an activity
-        workflow.logger.info("calling activity to generate statistics");
+        workflow.logger.info("calling activity to generate statistics")
         stats = await generate_statistics(sim_workflow_runs=simulator_workflow_runs, compare_settings=self.verify_input.compare_settings)
 
         self.verify_output.workflow_results = stats

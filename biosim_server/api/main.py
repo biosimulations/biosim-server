@@ -15,6 +15,8 @@ from starlette.responses import HTMLResponse
 from biosim_server.biosim_omex import OmexFile, get_cached_omex_file_from_upload
 from biosim_server.biosim_runs import BiosimulatorVersion
 from biosim_server.biosim_verify import CompareSettings
+from biosim_server.compatibility import compatibility_router
+from biosim_server.simulations import simulations_router
 from biosim_server.biosim_verify.models import VerifyWorkflowOutput, VerifyWorkflowStatus
 from biosim_server.biosim_verify.omex_verify_workflow import OmexVerifyWorkflow, OmexVerifyWorkflowInput
 from biosim_server.biosim_verify.runs_verify_workflow import RunsVerifyWorkflowInput, RunsVerifyWorkflow
@@ -44,6 +46,7 @@ APP_ORIGINS = [
     'http://localhost:4201',
     'http://localhost:4202',
     'http://localhost:8000',
+    'http://localhost:3000',
     'http://localhost:3001',
     'https://biosimulators.org',
     'https://www.biosimulators.org',
@@ -83,7 +86,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     await shutdown_standalone()
 
 
-app = FastAPI(openapi_url="/docs", docs_url=None, redoc_url=None, title=APP_TITLE, version=APP_VERSION, servers=APP_SERVERS, lifespan=lifespan)
+app = FastAPI(openapi_url="/openapi.json", docs_url=None, redoc_url=None, title=APP_TITLE, version=APP_VERSION, servers=APP_SERVERS, lifespan=lifespan)
 
 # add origins
 app.add_middleware(
@@ -92,6 +95,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"])
+
+# include routers
+app.include_router(compatibility_router)
+app.include_router(simulations_router)
 
 
 # -- endpoint logic -- #
@@ -115,8 +122,8 @@ async def custom_swagger_ui_html() -> HTMLResponse:
     return get_swagger_ui_html(
         openapi_url=app.openapi_url,
         title=app.title + " - Swagger UI",
-        swagger_js_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/3.0.21/swagger-ui-bundle.js", # Replace with your CDN URL
-        swagger_css_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/3.0.21/swagger-ui.css",     # Replace with your CDN URL
+        swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js",
+        swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css",
     )
 
 @app.post(
