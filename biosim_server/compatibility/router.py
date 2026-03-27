@@ -6,10 +6,11 @@ import logging
 import aiohttp
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
+from biosim_server.biosim_omex.omex_storage import get_cached_omex_file_from_raw
 from biosim_server.compatibility.models import CompatibilityResponse
 from biosim_server.compatibility.omex_parser import parse_omex_content
 from biosim_server.compatibility.simulator_matcher import find_compatible_simulators
-from biosim_server.dependencies import get_biosim_service
+from biosim_server.dependencies import get_biosim_service, get_file_service, get_omex_database_service
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,16 @@ async def check_compatibility(
 
     if not omex_content.simulations:
         raise HTTPException(status_code=400, detail="No simulations found in the SED-ML files")
+
+    # Cache the OMEX file to database + GCS so it can be used by /simulations/run
+    file_service = get_file_service()
+    omex_database = get_omex_database_service()
+    if file_service is not None and omex_database is not None:
+        filename = uploaded_file.filename if uploaded_file is not None else f"{omex_id}.omex"
+        try:
+            await get_cached_omex_file_from_raw(file_service, omex_database, file_content, filename)
+        except Exception as e:
+            logger.warning(f"Failed to cache OMEX file: {e}", exc_info=True)
 
     # Get available simulators
     biosim_service = get_biosim_service()
