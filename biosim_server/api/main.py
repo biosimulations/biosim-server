@@ -16,6 +16,7 @@ from biosim_server.biosim_omex import OmexFile, get_cached_omex_file_from_upload
 from biosim_server.biosim_runs import BiosimulatorVersion
 from biosim_server.biosim_verify import CompareSettings
 from biosim_server.compatibility import compatibility_router
+from biosim_server.simulations import simulations_router
 from biosim_server.biosim_verify.models import VerifyWorkflowOutput, VerifyWorkflowStatus
 from biosim_server.biosim_verify.omex_verify_workflow import OmexVerifyWorkflow, OmexVerifyWorkflowInput
 from biosim_server.biosim_verify.runs_verify_workflow import RunsVerifyWorkflowInput, RunsVerifyWorkflow
@@ -97,6 +98,7 @@ app.add_middleware(
 
 # include routers
 app.include_router(compatibility_router)
+app.include_router(simulations_router)
 
 
 # -- endpoint logic -- #
