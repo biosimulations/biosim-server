@@ -4,7 +4,7 @@
 
 Biosim-Server is a distributed microservices platform for biosimulation verification and comparison. It runs biological simulations across multiple simulators (AMICI, COPASI, PySCES, Tellurium, VCell) and compares outputs to verify model correctness.
 
-**Version:** 0.2.3
+**Version:** 0.3.4
 **Python:** 3.13
 **Production URL:** https://biosim.biosimulations.org/docs
 
@@ -93,6 +93,15 @@ biosim_server/
 │   ├── database.py        # MongoDB for OMEX metadata
 │   ├── models.py          # OmexFile model
 │   └── omex_storage.py    # Upload/caching logic
+├── compatibility/         # OMEX compatibility checking
+│   ├── models.py          # CompatibilityResponse, EligibleSimulator, etc.
+│   ├── router.py          # POST /compatibility/check
+│   ├── omex_parser.py     # Parse OMEX archives for model/algorithm info
+│   └── simulator_matcher.py # Match simulators to OMEX requirements
+├── simulations/           # Simulation run management (backend-for-frontend)
+│   ├── models.py          # RunSimulationRequest, ConglomerateStatus, etc.
+│   ├── router.py          # POST /simulations/run, GET /simulations/{id}
+│   └── workflow.py        # SimulationRunWorkflow (Temporal)
 ├── common/
 │   ├── storage/           # GCS file operations
 │   ├── temporal/          # Temporal client utilities
@@ -109,6 +118,9 @@ biosim_server/
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
+| `/compatibility/check` | POST | Check OMEX archive compatibility with simulators |
+| `/simulations/run` | POST | Run simulations for an OMEX archive across selected simulators |
+| `/simulations/{processing_id}` | GET | Get status of a simulation run |
 | `/verify/omex` | POST | Verify OMEX file across simulators |
 | `/verify/{workflow_id}` | GET | Get verification results |
 | `/verify/runs` | POST | Compare existing biosimulation runs |
@@ -128,8 +140,9 @@ All I/O is async: FastAPI endpoints, MongoDB (Motor), HTTP (aiohttp), file ops.
 
 ### Temporal Workflows
 - `OmexSimWorkflow` - Run single simulator on OMEX file
-- `OmexVerifyWorkflow` - Orchestrate multiple simulators in parallel
+- `OmexVerifyWorkflow` - Orchestrate multiple simulators in parallel, then compare
 - `RunsVerifyWorkflow` - Compare existing runs
+- `SimulationRunWorkflow` - Run simulations without comparison (backend-for-frontend)
 
 ### Caching
 - OMEX files cached by MD5 hash in MongoDB + GCS

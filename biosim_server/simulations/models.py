@@ -10,7 +10,7 @@ class RunSimulationRequest(BaseModel):
     omex_id: str
     name: str
     simulators: list[SimulatorSelection]
-    commercial_acknowledgement: bool = False
+    is_commercial: bool = False
     email_address: str
     newsletter_consent: bool = False
 
@@ -20,7 +20,6 @@ class SimulationJobStatus(BaseModel):
     simulator_id: str                            # e.g., "copasi"
     version: str                                 # e.g., "4.34.251"
     status: str                                  # "processing" | "success" | "failure"
-    algorithm: str | None = None
     error: str | None = None
     biosimulations_run_id: str | None = None     # External reference
 
