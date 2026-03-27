@@ -5,6 +5,7 @@ from typing import Any, Coroutine
 
 from pydantic import BaseModel
 from temporalio import workflow
+from temporalio.exceptions import ChildWorkflowError
 from temporalio.workflow import ChildWorkflowHandle
 
 from biosim_server.biosim_omex import OmexFile
@@ -80,6 +81,13 @@ class SimulationRunWorkflow:
                 else:
                     self.job_statuses[job_id].status = "failure"
                     self.job_statuses[job_id].error = output.error_message
+            except ChildWorkflowError as e:
+                self.job_statuses[job_id].status = "failure"
+                # Extract root cause from the chain: ChildWorkflowError -> ActivityError -> ApplicationError
+                cause: BaseException = e
+                while cause.__cause__ is not None:
+                    cause = cause.__cause__
+                self.job_statuses[job_id].error = str(cause)
             except Exception as e:
                 self.job_statuses[job_id].status = "failure"
                 self.job_statuses[job_id].error = str(e)

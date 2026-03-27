@@ -11,6 +11,7 @@ from biosim_server.biosim_runs import get_existing_biosim_simulation_run_activit
 from biosim_server.biosim_verify.activities import generate_statistics_activity
 from biosim_server.biosim_verify.omex_verify_workflow import OmexVerifyWorkflow
 from biosim_server.biosim_verify.runs_verify_workflow import RunsVerifyWorkflow
+from biosim_server.simulations.workflow import SimulationRunWorkflow
 from biosim_server.common.temporal import pydantic_data_converter
 from biosim_server.dependencies import get_temporal_client, set_temporal_client
 
@@ -45,7 +46,7 @@ async def temporal_verify_worker(temporal_client: Client) -> AsyncGenerator[Work
     async with Worker(
             temporal_client,
             task_queue="verification_tasks",
-            workflows=[OmexVerifyWorkflow, OmexSimWorkflow, RunsVerifyWorkflow],
+            workflows=[OmexVerifyWorkflow, OmexSimWorkflow, RunsVerifyWorkflow, SimulationRunWorkflow],
             activities=[generate_statistics_activity, get_existing_biosim_simulation_run_activity,
                         submit_biosim_simulation_run_activity],
             debug_mode=True,

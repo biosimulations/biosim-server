@@ -1,6 +1,5 @@
 """Tests for the simulations router endpoints."""
 
-import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
