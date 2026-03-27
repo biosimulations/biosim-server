@@ -127,7 +127,11 @@ class SimulationRunWorkflow:
                     self.job_statuses[job_id].status = "success"
                 else:
                     self.job_statuses[job_id].status = "failure"
-                    error_msg = poll_result.biosim_run.error_message if poll_result.biosim_run else "Unknown error"
-                    self.job_statuses[job_id].error = error_msg
+                    if poll_result.biosim_run is not None:
+                        status = poll_result.biosim_run.status
+                        msg = poll_result.biosim_run.error_message
+                        self.job_statuses[job_id].error = msg or f"Simulation ended with status: {status}"
+                    else:
+                        self.job_statuses[job_id].error = "Unknown error: no simulation run returned"
 
         return self.get_status()
